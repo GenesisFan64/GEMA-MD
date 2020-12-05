@@ -3,7 +3,8 @@
 ; GEMA sound driver, inspired by GEMS
 ; 
 ; WARNING: any code change will desync the sample rate and
-; need to re-manually sync it.
+; you will need to manually re-sync it.
+; 
 ; DAC sample rate is 16000hz aprox.
 ; ----------------------------------------------------------------
 
@@ -72,7 +73,7 @@ dacStream	macro option
 ; --------------------------------------------------------
 
 		org 0038h			; Align to 0038h
-		ld	(TICKFLG),sp		; Use sp to set TICK request
+		ld	(tickFlag),sp		; Use sp to set TICK request
 		di				; Disable interrupt until next request
 		ret
 
@@ -94,26 +95,29 @@ drv_loop:
 		call	checktick		; Check for tick on VBlank
 		call	dac_me			; Another sample
 		call	dac_fill		; Refill wave data
-		ld	b,0			; b - Current song speed flags
-		ld	a,(TICKCNT)		
+		ld	b,0			; b - Reset current flags (beat|tick)
+		ld	a,(tickCnt)		
 		sub	1
 		jr	c,.noticks
-		ld	(TICKCNT),a
+		ld	(tickCnt),a
 		call	psg_env			; Do PSG effects
 		call	checktick		; Check for another tick
-		ld 	b,1			; Set TICK flag
+		ld 	b,1			; Set TICK (01b) flag
 .noticks:
 		call	dac_me
-		ld	a,(SBPTACC+1)		; check beat counter (scaled by tempo)
+		ld	a,(sbeatAcc+1)		; check beat counter (scaled by tempo)
 		sub	1
 		jr	c,.nobeats
-		ld	(SBPTACC+1),a		; 1/24 beat passed.
-		set	1,b			; Set BEAT flag
+		ld	(sbeatAcc+1),a		; 1/24 beat passed.
+		set	1,b			; Set BEAT (10b) flag
+		call	dac_me			; painful desync here, play 3 WAV bytes
+		call	dac_me
+		call	dac_me
 .nobeats:
 		ld	a,b
 		or	a
 		jr	z,.neithertick
-		ld	(TBASEFLAGS),a
+		ld	(tickGotFlags),a
 ; 		call	doenvelope
 		call	checktick
 ; 		call	vtimer
@@ -203,20 +207,21 @@ checktick:
 		di
 		push	af
 		push	hl
-		ld	hl,TICKFLG+1
-		ld	a,(hl)
+		ld	hl,tickFlag+1		; read TICK flag
+		ld	a,(hl)			; non-zero value?
 		or 	a
 		jr	z,.ctnotick
-						; Now we are inside VBlank
+
+	; Now we are inside VBlank
 		ld	(hl),0			; ints are disabled here
-		inc	hl			; go to counter
-		inc	(hl)
+		inc	hl
+		inc	(hl)			; Add 1 to tickCnt
 		call	dac_me
 		push	de
-		ld	hl,(SBPTACC)
-		ld	de,(SBPT)
+		ld	hl,(sbeatAcc)
+		ld	de,(sbeatPtck)
 		add	hl,de
-		ld	(SBPTACC),hl
+		ld	(sbeatAcc),hl
 		pop	de
 		call	dac_me
 .ctnotick:
@@ -225,6 +230,28 @@ checktick:
 		ei
 		ret
 
+; --------------------------------------------------------
+; set_tempo
+; 
+; Input:
+; a - Beats per minute
+;
+; Uses:
+; de,hl
+; --------------------------------------------------------
+
+set_tempo:
+		ld	de,218
+		call	do_multiply
+		xor	a
+		sla	l
+		rl	h
+		rla			; AH <- sbpt, 8 fracs
+		ld	l,h
+		ld	h,a		; HL <- AH
+		ld	(sbeatPtck),hl
+		ret
+	
 ; --------------------------------------------------------
 ; psg_env
 ; 
@@ -440,6 +467,7 @@ psg_env:
 ; de - Pitch (00.00)
 ; hl - FIFO LSB
 ;
+; Uses:
 ; *** self-modifiable code ***
 ; --------------------------------------------------------
 
@@ -625,12 +653,12 @@ dac_reset:
 ; 
 ; Input:
 ; a  - Source ROM address xx0000
-;  c - Byte count (0000h NOT allowed)
+;  c - Byte count (00h NOT allowed)
 ; hl - Source ROM address 00xxxx
 ; de - Destination address
 ; 
 ; Uses:
-; b , ix
+; b, ix
 ; --------------------------------------------------------
 
 transferRom:
@@ -712,16 +740,15 @@ transferRom:
 		set	7,h
 
 	; Transfer data in parts of 3bytes
-	; while playing DAC in the
-	; process
+	; while playing DAC in the process
 		ld	a,c
 		ld	b,0
-		set	0,(ix+1)
+		set	0,(ix+1)		; Tell to 68k that we are reading from ROM
 		sub	a,3
 		jr	c,.x68klast
 .x68kloop:
 		ld	c,3-1
-		bit	0,(ix)
+		bit	0,(ix)			; If 68k requested ROM block from here
 		jr	nz,.x68klpwt
 .x68klpcont:
 		ldir
@@ -734,7 +761,7 @@ transferRom:
 .x68klast:
 		add	a,3
 		ld	c,a
-		bit	0,(ix)
+		bit	0,(ix)			; If 68k requested ROM block from here
 		jp	nz,.x68klstwt
 .x68klstcont:
 		ldir
@@ -743,24 +770,26 @@ transferRom:
 		res	0,(ix+1)
 		ret
 
-; If 68k wants to DMA...
+; If 68k block ROM access:
 ; TODO: This MIGHT cause the DAC to ran out of data
 
+; Mid-reading
 .x68klpwt:
-		res	0,(ix+1)
+		res	0,(ix+1)		; Not touching ROM
 .x68kpwtlp:
 		call	dac_me
-		bit	0,(ix)
+		bit	0,(ix)			; Is ROM free?
 		jr	nz,.x68kpwtlp
-		set	0,(ix+1)
+		set	0,(ix+1)		; Touching ROM again.
 		jr	.x68klpcont
+; Last write
 .x68klstwt:
-		res	0,(ix+1)
+		res	0,(ix+1)		; Not touching ROM
 .x68klstwtlp:
 		call	dac_me
-		bit	0,(ix)
+		bit	0,(ix)			; Is ROM free?
 		jr	nz,.x68klstwtlp
-		set	0,(ix+1)
+		set	0,(ix+1)		; Touching ROM again.
 		jr	.x68klstcont
 
 ; ---------------------------------------------
@@ -790,6 +819,35 @@ SndDrv_FmSet_2:
 		nop	
 		ret
 
+; ---------------------------------------------
+; do_multiply
+; 
+; Input:
+; d - ctrl
+; e - data
+; c - channel
+; ---------------------------------------------
+
+; 			      ; GETPATPTR
+; 			      ; 		ld	HL,PATCHDATA
+; 	dc.b	$21,$86,$18
+; 			      ; 		ld	DE,39
+; 	dc.b	$11,$27,$00
+; 			      ; 		jr	MULADD
+; 	dc.b	$18,$03
+
+do_multiply:
+		ld	hl,0
+.mul_add:
+		srl	a
+		jr	nc,.mulbitclr
+		add	hl,de
+.mulbitclr:
+		ret	z
+		sla	e
+		rl	d
+		jr	.mul_add
+			      
 ; ====================================================================
 ; ----------------------------------------------------------------
 ; Tables
@@ -1142,7 +1200,11 @@ FmIns_Ding_toy:
 ; Z80 RAM
 ; ----------------------------------------------------------------
 
-		org 00F00h			; align to 0038h
+; --------------------------------------------------------
+; User
+; --------------------------------------------------------
+
+		org 00B00h			; align to 0038h
 patch_Data	ds 40h*16
 wave_Start	dw TEST_WAV&0FFFFh
 		db TEST_WAV>>16&0FFh
@@ -1153,18 +1215,23 @@ wave_Loop	dw 0
 wave_Pitch	dw 100h
 wav_Flags	db 101b				; WAVE playback flags (%1xx: 01 loop / 10 end)
 
+; --------------------------------------------------------
+; Internal
+; --------------------------------------------------------
+
 		org 01C00h			; align to 0038h
-dWaveFifo	ds 100h
-cpuComm		db 0,0				; 68k ROM block flag, z80 response bit
-MBOXES		db 32
-TICKFLG		dw 0				; Use TICKFLG+1 for reading/reseting
-TICKCNT		db 0
-SBPT		dw 204				; sub beats per tick (8frac), default is 120bpm
-SBPTACC		dw 0				; accumulates ^^ each tick to track sub beats
-TBASEFLAGS	db 0			      
+dWaveFifo	ds 100h				; WAVE data buffer, updated by 128bytes
+MBOXES		ds 32				; GEMS mailboxes
+cpuComm		db 0,0				; 68k ROM block flag, z80 reading bit
+tickFlag	dw 0				; Tick flag (from VBlank), Use tickFlag+1 for reading/reseting
+tickCnt		db 0				; Tick counter (KEEP IT AFTER tickFlag)
+
+sbeatPtck	dw 204*64			; sub beats per tick (8frac), default is 120bpm
+sbeatAcc	dw 0				; accumulates ^^ each tick to track sub beats
+tickGotFlags	db 0				; (old: TBASEFLAGS)		      
 dDacPntr	db 0,0,0			; WAVE current position
 dDacCntr	db 0,0,0			; WAVE fileread counter
-dDacFifoMid	db 0
+dDacFifoMid	db 0				; WAVE current FIFO next halfway bitcheck
 x68ksrclsb	db 0
 x68ksrcmid	db 0
 commRead	db 0				; read pointer (here)
