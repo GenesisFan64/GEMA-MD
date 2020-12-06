@@ -73,7 +73,7 @@ dacStream	macro option
 ; --------------------------------------------------------
 
 		org 0038h			; Align to 0038h
-		ld	(tickFlag),sp		; Use sp to set TICK request
+		ld	(tickFlag),sp		; Use sp to set TICK request (Set xx1F)
 		di				; Disable interrupt until next request
 		ret
 
@@ -92,7 +92,7 @@ z80_init:
 
 drv_loop:
 		call	dac_me			; Do 1 sample
-		call	checktick		; Check for tick on VBlank
+		call	check_tick		; Check for tick on VBlank
 		call	dac_me			; Another sample
 		call	dac_fill		; Refill wave data
 		ld	b,0			; b - Reset current flags (beat|tick)
@@ -101,7 +101,7 @@ drv_loop:
 		jr	c,.noticks
 		ld	(tickCnt),a
 		call	psg_env			; Do PSG effects
-		call	checktick		; Check for another tick
+		call	check_tick		; Check for another tick
 		ld 	b,1			; Set TICK (01b) flag
 .noticks:
 		call	dac_me
@@ -119,28 +119,139 @@ drv_loop:
 		jr	z,.neithertick
 		ld	(tickGotFlags),a
 ; 		call	doenvelope
-		call	checktick
+		call	check_tick
 ; 		call	vtimer
-		call	checktick
+		call	check_tick
 ; 		call	updseq
-		call	checktick
+		call	check_tick
 .neithertick:
-			      
-		call	dac_me
-		ld	b,7
-		djnz	$
-		call	dac_me
-		ld	b,7
-		djnz	$
+; 		call	apply_bend
+
+		ld	a,(CMDWPTR)
+		ld	b,a
+		ld	a,(cmdrptr)
+		cp	b
+		jp	z,drv_loop
+		call	get_cmdbyte		; read cmd from CMDFIFO
+		cp	-1
+		jp	nz,drv_loop
+		call	get_cmdbyte
+
+		
+; 			      ; 		call	GETCBYTE		; main loop
+; 	dc.b	$CD,$D1,$01
+; 			      ; 		cp	0FFH			; start of command?
+; 	dc.b	$FE,$FF
+; 			      ; 		jp	NZ,loop			; no, wait for one
+; 	dc.b	$C2,$F7,$08
+; 			      ; 
+; 			      ; 		call	GETCBYTE		; get command
+; 	dc.b	$CD,$D1,$01
+; 			      ; 		cp	0			; note on?
+; 	dc.b	$FE,$00
+; 			      ; 		jp	Z,cmdnoteon
+; 	dc.b	$CA,$D6,$09
+; 			      ; 		cp	1
+; 	dc.b	$FE,$01
+; 			      ; 		jp	Z,cmdnoteoff
+; 	dc.b	$CA,$EA,$09
+; 			      ; 		cp	2
+; 	dc.b	$FE,$02
+; 			      ; 		jp	Z,cmdpchange
+; 	dc.b	$CA,$F8,$09
+; 			      ; 		cp	3
+; 	dc.b	$FE,$03
+; 			      ; 		jp	Z,cmdpupdate
+; 	dc.b	$CA,$FE,$09
+; 			      ; 		cp	4
+; 	dc.b	$FE,$04
+; 			      ; 		jp	Z,cmdpbend
+; 	dc.b	$CA,$07,$0A
+; 			      ; 		cp	5
+; 	dc.b	$FE,$05
+; 			      ; 		jp	Z,cmdtempo
+; 	dc.b	$CA,$4B,$0A
+; 			      ; 		cp	6
+; 	dc.b	$FE,$06
+; 			      ; 		jp	Z,cmdenv
+; 	dc.b	$CA,$54,$0A
+; 			      ; 		cp	7
+; 	dc.b	$FE,$07
+; 			      ; 		jp	Z,cmdretrig
+; 	dc.b	$CA,$6D,$0A
+; 			      ; 		cp	11
+; 	dc.b	$FE,$0B
+; 			      ; 		jp	Z,cmdgetptrs
+; 	dc.b	$CA,$96,$0A
+; 			      ; 		cp	12
+; 	dc.b	$FE,$0C
+; 			      ; 		jp	Z,cmdpause
+; 	dc.b	$CA,$B1,$0A
+; 			      ; 		cp	13
+; 	dc.b	$FE,$0D
+; 			      ; 		jp	Z,cmdresume
+; 	dc.b	$CA,$C9,$0A
+; 			      ; 		cp	14
+; 	dc.b	$FE,$0E
+; 			      ; 		jp	Z,cmdsussw
+; 	dc.b	$CA,$CF,$0A
+; 			      ; 		cp	16
+; 	dc.b	$FE,$10
+; 			      ; 		jp	Z,cmdstartseq
+; 	dc.b	$CA,$84,$0A
+; 			      ; 		cp	18
+; 	dc.b	$FE,$12
+; 			      ; 		jp	Z,cmdstopseq
+; 	dc.b	$CA,$8D,$0A
+; 			      ; 		cp	20
+; 	dc.b	$FE,$14
+; 			      ; 		jp	Z,cmdsetprio
+; 	dc.b	$CA,$E6,$0A
+; 			      ; 		cp	22
+; 	dc.b	$FE,$16
+; 			      ; 		jp	Z,cmdstopall
+; 	dc.b	$CA,$F2,$0A
+; 			      ; 		cp	23
+; 	dc.b	$FE,$17
+; 			      ; 		jp	Z,cmdmute
+; 	dc.b	$CA,$12,$0B
+; 			      ; 		cp	26
+; 	dc.b	$FE,$1A
+; 			      ; 		jp	Z,cmdsamprate
+; 	dc.b	$CA,$4F,$0B
+; 			      ; 		cp	27
+; 	dc.b	$FE,$1B
+; 			      ; 		jp	Z,cmdstore
+; 	dc.b	$CA,$64,$0B
+; 			      ; 		cp	28
+; 	dc.b	$FE,$1C
+; 			      ; 		jp	Z,cmdlockch
+; 	dc.b	$CA,$75,$0B
+; 			      ; 		cp	29
+; 	dc.b	$FE,$1D
+; 			      ; 		jp	Z,cmdunlockch
+; 	dc.b	$CA,$7F,$0B
+; 			      ; 		cp	30
+; 	dc.b	$FE,$1E
+; 			      ; 		jp	Z,cmdpbendvch
+; 	dc.b	$CA,$10,$0A
+; 			      ; 		cp	31
+; 	dc.b	$FE,$1F
+; 			      ; 		jp	Z,cmdvolume
+; 	dc.b	$CA,$A8,$0B
+; 			      ; 		cp	32
+; 	dc.b	$FE,$20
+; 			      ; 		jp	Z,cmdmasteratn
+; 	dc.b	$CA,$B4,$0B
+; 			      ; 		jp	loop
 
 		jp	drv_loop
 
-; Mandar WAVE usando entre:
 ; 		call	dac_me
 ; 		call	dac_fill
-; y
+; 
 ; 		call	dac_me
-; 		ld	b,8		; codigo va
+; 		ld	b,7		; codigo va
 ; 		djnz	$		; aqui
 
 ; ====================================================================
@@ -192,33 +303,69 @@ SndDrv_Init:
 ; Subroutines
 ; ----------------------------------------------------------------
 
+get_cmdbyte:
+		push	bc
+		push	hl
+.getcbytel:
+		call	dac_me
+		call	dac_fifo
+		ld	a,(CMDWPTR)
+		ld	b,a
+		ld	a,(cmdrptr)
+		cp	b
+		jp	z,.getcbytel
+		ld	b,0
+		ld	c,a
+		ld	hl,cmdfifo
+		
+			      ; 		ld	B,0
+	dc.b	$06,$00
+			      ; 		ld	C,a			; BC gets 16 bit read ptr
+	dc.b	$4F
+			      ; 		ld	HL,cmdfifo		; IX points at fifo
+	dc.b	$21,$40,$1B
+			      ; 
+			      ; 		call	DACME
+	dc.b	$CD,$B7,$02
+			      ; 
+			      ; 		zadd	HL,BC			; add 'em
+	dc.b	$09
+			      ; 		inc	A			; increment read ptr
+	dc.b	$3C
+			      ; 		zand	3FH			;  (mod 64)
+	dc.b	$E6,$3F
+			      ; 		ld	(cmdrptr),A
+	dc.b	$32,$37,$00
+			      ; 		ld	A,(HL)			; read actual entry
+	dc.b	$7E
+			      ; 		pop	HL
+	dc.b	$E1
+			      ; 		pop	BC
+	dc.b	$C1
+			      ; 		ret
+			      
 ; --------------------------------------------------------
-; checktick
+; check_tick
 ; 
 ; Checks if VBlank triggred a TICK (1/150)
-;
-; Input (EXX):
-;  c - WAVEFIFO pointer MSB
-; de - Pitch (00.00)
-; hl - FIFO LSB
 ; --------------------------------------------------------
 
-checktick:
-		di
+check_tick:
+		di				; Disable ints
 		push	af
 		push	hl
-		ld	hl,tickFlag+1		; read TICK flag
+		ld	hl,tickFlag+1		; read last TICK flag
 		ld	a,(hl)			; non-zero value?
 		or 	a
 		jr	z,.ctnotick
 
-	; Now we are inside VBlank
-		ld	(hl),0			; ints are disabled here
-		inc	hl
-		inc	(hl)			; Add 1 to tickCnt
+	; ints are disabled from here
+		ld	(hl),0			; Reset TICK flag
+		inc	hl			; Move to tickCnt
+		inc	(hl)			; and increment
 		call	dac_me
 		push	de
-		ld	hl,(sbeatAcc)
+		ld	hl,(sbeatAcc)		; Increment subbeats
 		ld	de,(sbeatPtck)
 		add	hl,de
 		ld	(sbeatAcc),hl
@@ -227,7 +374,7 @@ checktick:
 .ctnotick:
 		pop	hl
 		pop	af
-		ei
+		ei				; Enable ints again
 		ret
 
 ; --------------------------------------------------------
@@ -823,9 +970,8 @@ SndDrv_FmSet_2:
 ; do_multiply
 ; 
 ; Input:
-; d - ctrl
-; e - data
-; c - channel
+; hl - Start from
+; de - Multply by this
 ; ---------------------------------------------
 
 ; 			      ; GETPATPTR
@@ -844,7 +990,7 @@ do_multiply:
 		add	hl,de
 .mulbitclr:
 		ret	z
-		sla	e
+		sla	e		; if more bits still set in A, DE*=2 and loop
 		rl	d
 		jr	.mul_add
 			      
@@ -1221,6 +1367,7 @@ wav_Flags	db 101b				; WAVE playback flags (%1xx: 01 loop / 10 end)
 
 		org 01C00h			; align to 0038h
 dWaveFifo	ds 100h				; WAVE data buffer, updated by 128bytes
+cmdfifo		ds 64
 MBOXES		ds 32				; GEMS mailboxes
 cpuComm		db 0,0				; 68k ROM block flag, z80 reading bit
 tickFlag	dw 0				; Tick flag (from VBlank), Use tickFlag+1 for reading/reseting
