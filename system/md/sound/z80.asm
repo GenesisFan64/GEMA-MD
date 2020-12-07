@@ -5,7 +5,7 @@
 ; WARNING: any code change will desync the sample rate and
 ; you will need to manually re-sync it.
 ; 
-; DAC sample rate is 16000hz aprox.
+; DAC sample rate is 16000hz base, minimal frequency changes
 ; ----------------------------------------------------------------
 
 ; --------------------------------------------------------
@@ -19,7 +19,7 @@ zopcRet		equ 	0C9h
 zopcExx		equ	0D9h			; (dac_me ONLY)
 zopcPushAf	equ	0F5h			; (dac_fill ONLY)
 
-; PSG control      
+; PSG control 
 COM		equ	0
 LEV		equ	4
 ATK		equ	8
@@ -40,18 +40,18 @@ FLG		equ	40
 dacStream	macro option
 	if option==True
 		ld	a,2Bh
-		ld	(4000h),a
+		ld	(Zym_ctrl_1),a
 		ld	a,80h
-		ld	(4001h),a
+		ld	(Zym_data_1),a
 		ld 	a,zopcExx
 		ld	(dac_me),a
 		ld 	a,zopcPushAf
 		ld	(dac_fill),a
 	else
 		ld	a,2Bh
-		ld	(4000h),a
+		ld	(Zym_ctrl_1),a
 		ld	a,00h
-		ld	(4001h),a
+		ld	(Zym_data_1),a
 		ld 	a,zopcRet
 		ld	(dac_me),a
 		ld 	a,zopcRet
@@ -82,8 +82,8 @@ dacStream	macro option
 ; --------------------------------------------------------
 
 z80_init:
-		call	SndDrv_Init		; Initilize VBLANK sound driver
-		call	dac_reset
+		call	gema_init		; Initilize VBLANK sound driver
+		call	dac_play
 		ei
 
 ; --------------------------------------------------------
@@ -91,15 +91,18 @@ z80_init:
 ; --------------------------------------------------------
 
 drv_loop:
-		call	dac_me			; Do 1 sample
+		call	dac_me
 		call	check_tick		; Check for tick on VBlank
-		call	dac_me			; Another sample
-		call	dac_fill		; Refill wave data
+		call	dac_fill
+		call	dac_me
+		
+	; Check for tick and tempo
 		ld	b,0			; b - Reset current flags (beat|tick)
 		ld	a,(tickCnt)		
 		sub	1
 		jr	c,.noticks
 		ld	(tickCnt),a
+		call	dac_me
 		call	psg_env			; Do PSG effects
 		call	check_tick		; Check for another tick
 		ld 	b,1			; Set TICK (01b) flag
@@ -117,139 +120,86 @@ drv_loop:
 		ld	a,b
 		or	a
 		jr	z,.neithertick
-		ld	(tickGotFlags),a
+		ld	(currTickBits),a	; Save bits
 ; 		call	doenvelope
 		call	check_tick
 ; 		call	vtimer
 		call	check_tick
 ; 		call	updseq
 		call	check_tick
+
 .neithertick:
 ; 		call	apply_bend
 
-		ld	a,(CMDWPTR)
+		ld	a,(commWrite)
 		ld	b,a
-		ld	a,(cmdrptr)
+		ld	a,(commRead)
 		cp	b
 		jp	z,drv_loop
+
+	; Get 0FFh (Start of command)
 		call	get_cmdbyte		; read cmd from CMDFIFO
 		cp	-1
 		jp	nz,drv_loop
 		call	get_cmdbyte
+		ld	hl,.list
+		ld	d,0
+		ld	e,a
+		add	hl,de
+		call	dac_me
+		call	dac_fill
+		ld	a,(hl)
+		inc	hl
+		ld	h,(hl)
+		ld	l,a
+		jp	(hl)
+.list:
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
+		dw .cmnd_0
 
-		
-; 			      ; 		call	GETCBYTE		; main loop
-; 	dc.b	$CD,$D1,$01
-; 			      ; 		cp	0FFH			; start of command?
-; 	dc.b	$FE,$FF
-; 			      ; 		jp	NZ,loop			; no, wait for one
-; 	dc.b	$C2,$F7,$08
-; 			      ; 
-; 			      ; 		call	GETCBYTE		; get command
-; 	dc.b	$CD,$D1,$01
-; 			      ; 		cp	0			; note on?
-; 	dc.b	$FE,$00
-; 			      ; 		jp	Z,cmdnoteon
-; 	dc.b	$CA,$D6,$09
-; 			      ; 		cp	1
-; 	dc.b	$FE,$01
-; 			      ; 		jp	Z,cmdnoteoff
-; 	dc.b	$CA,$EA,$09
-; 			      ; 		cp	2
-; 	dc.b	$FE,$02
-; 			      ; 		jp	Z,cmdpchange
-; 	dc.b	$CA,$F8,$09
-; 			      ; 		cp	3
-; 	dc.b	$FE,$03
-; 			      ; 		jp	Z,cmdpupdate
-; 	dc.b	$CA,$FE,$09
-; 			      ; 		cp	4
-; 	dc.b	$FE,$04
-; 			      ; 		jp	Z,cmdpbend
-; 	dc.b	$CA,$07,$0A
-; 			      ; 		cp	5
-; 	dc.b	$FE,$05
-; 			      ; 		jp	Z,cmdtempo
-; 	dc.b	$CA,$4B,$0A
-; 			      ; 		cp	6
-; 	dc.b	$FE,$06
-; 			      ; 		jp	Z,cmdenv
-; 	dc.b	$CA,$54,$0A
-; 			      ; 		cp	7
-; 	dc.b	$FE,$07
-; 			      ; 		jp	Z,cmdretrig
-; 	dc.b	$CA,$6D,$0A
-; 			      ; 		cp	11
-; 	dc.b	$FE,$0B
-; 			      ; 		jp	Z,cmdgetptrs
-; 	dc.b	$CA,$96,$0A
-; 			      ; 		cp	12
-; 	dc.b	$FE,$0C
-; 			      ; 		jp	Z,cmdpause
-; 	dc.b	$CA,$B1,$0A
-; 			      ; 		cp	13
-; 	dc.b	$FE,$0D
-; 			      ; 		jp	Z,cmdresume
-; 	dc.b	$CA,$C9,$0A
-; 			      ; 		cp	14
-; 	dc.b	$FE,$0E
-; 			      ; 		jp	Z,cmdsussw
-; 	dc.b	$CA,$CF,$0A
-; 			      ; 		cp	16
-; 	dc.b	$FE,$10
-; 			      ; 		jp	Z,cmdstartseq
-; 	dc.b	$CA,$84,$0A
-; 			      ; 		cp	18
-; 	dc.b	$FE,$12
-; 			      ; 		jp	Z,cmdstopseq
-; 	dc.b	$CA,$8D,$0A
-; 			      ; 		cp	20
-; 	dc.b	$FE,$14
-; 			      ; 		jp	Z,cmdsetprio
-; 	dc.b	$CA,$E6,$0A
-; 			      ; 		cp	22
-; 	dc.b	$FE,$16
-; 			      ; 		jp	Z,cmdstopall
-; 	dc.b	$CA,$F2,$0A
-; 			      ; 		cp	23
-; 	dc.b	$FE,$17
-; 			      ; 		jp	Z,cmdmute
-; 	dc.b	$CA,$12,$0B
-; 			      ; 		cp	26
-; 	dc.b	$FE,$1A
-; 			      ; 		jp	Z,cmdsamprate
-; 	dc.b	$CA,$4F,$0B
-; 			      ; 		cp	27
-; 	dc.b	$FE,$1B
-; 			      ; 		jp	Z,cmdstore
-; 	dc.b	$CA,$64,$0B
-; 			      ; 		cp	28
-; 	dc.b	$FE,$1C
-; 			      ; 		jp	Z,cmdlockch
-; 	dc.b	$CA,$75,$0B
-; 			      ; 		cp	29
-; 	dc.b	$FE,$1D
-; 			      ; 		jp	Z,cmdunlockch
-; 	dc.b	$CA,$7F,$0B
-; 			      ; 		cp	30
-; 	dc.b	$FE,$1E
-; 			      ; 		jp	Z,cmdpbendvch
-; 	dc.b	$CA,$10,$0A
-; 			      ; 		cp	31
-; 	dc.b	$FE,$1F
-; 			      ; 		jp	Z,cmdvolume
-; 	dc.b	$CA,$A8,$0B
-; 			      ; 		cp	32
-; 	dc.b	$FE,$20
-; 			      ; 		jp	Z,cmdmasteratn
-; 	dc.b	$CA,$B4,$0B
-; 			      ; 		jp	loop
+; --------------------------------------------------------
+; Command list
+; --------------------------------------------------------
 
+.cmnd_0:
+		jr	$
 		jp	drv_loop
-
+		
 ; 		call	dac_me
 ; 		call	dac_fill
-; 
 ; 		call	dac_me
 ; 		ld	b,7		; codigo va
 ; 		djnz	$		; aqui
@@ -263,14 +213,16 @@ drv_loop:
 ; Init sound engine
 ; --------------------------------------------------------
 
-SndDrv_Init:
-		ld	hl,dWaveFifo			; Initilize WAVE FIFO
-		ld	de,dWaveFifo+1
-		ld	bc,100h-1
-		ld	(hl),80h
-		ldir
-		ld	de,220Bh			; LFO 03h
-		call	SndDrv_FmSet_1
+gema_init:
+		dacStream False
+		ld	a,09Fh
+		ld	(Zpsg_ctrl),a
+		ld	a,0BFh
+		ld	(Zpsg_ctrl),a		
+		ld	a,0DFh
+		ld	(Zpsg_ctrl),a	
+		ld	a,0FFh
+		ld	(Zpsg_ctrl),a
 		ld	de,2700h
 		call	SndDrv_FmSet_1
 		ld	de,2800h
@@ -286,16 +238,12 @@ SndDrv_Init:
 		ld	de,2806h
 		call	SndDrv_FmSet_1
 		ld	de,2B00h
-		call	SndDrv_FmSet_1
-		ld	a,09Fh
-		ld	(Zpsg_ctrl),a
-		ld	a,0BFh
-		ld	(Zpsg_ctrl),a		
-		ld	a,0DFh
-		ld	(Zpsg_ctrl),a	
-		ld	a,0FFh
-		ld	(Zpsg_ctrl),a
-		dacStream False
+		call	SndDrv_FmSet_1	
+		ld	hl,dWaveFifo			; Initilize WAVE FIFO
+		ld	de,dWaveFifo+1
+		ld	bc,100h-1
+		ld	(hl),80h
+		ldir
 		ret
 		
 ; ====================================================================
@@ -308,41 +256,24 @@ get_cmdbyte:
 		push	hl
 .getcbytel:
 		call	dac_me
-		call	dac_fifo
-		ld	a,(CMDWPTR)
+		call	dac_fill
+		ld	a,(commWrite)
 		ld	b,a
-		ld	a,(cmdrptr)
+		ld	a,(commRead)
 		cp	b
-		jp	z,.getcbytel
+		jp	z,.getcbytel		; wait for a command from 68k
 		ld	b,0
 		ld	c,a
 		ld	hl,cmdfifo
-		
-			      ; 		ld	B,0
-	dc.b	$06,$00
-			      ; 		ld	C,a			; BC gets 16 bit read ptr
-	dc.b	$4F
-			      ; 		ld	HL,cmdfifo		; IX points at fifo
-	dc.b	$21,$40,$1B
-			      ; 
-			      ; 		call	DACME
-	dc.b	$CD,$B7,$02
-			      ; 
-			      ; 		zadd	HL,BC			; add 'em
-	dc.b	$09
-			      ; 		inc	A			; increment read ptr
-	dc.b	$3C
-			      ; 		zand	3FH			;  (mod 64)
-	dc.b	$E6,$3F
-			      ; 		ld	(cmdrptr),A
-	dc.b	$32,$37,$00
-			      ; 		ld	A,(HL)			; read actual entry
-	dc.b	$7E
-			      ; 		pop	HL
-	dc.b	$E1
-			      ; 		pop	BC
-	dc.b	$C1
-			      ; 		ret
+		call	dac_me
+		add	hl,bc
+		inc	a
+		and	3Fh			; limit to 64
+		ld	(commRead),a
+		ld	a,(hl)
+		pop	hl
+		pop	bc
+		ret
 			      
 ; --------------------------------------------------------
 ; check_tick
@@ -367,10 +298,12 @@ check_tick:
 		push	de
 		ld	hl,(sbeatAcc)		; Increment subbeats
 		ld	de,(sbeatPtck)
+		call	dac_me
 		add	hl,de
 		ld	(sbeatAcc),hl
 		pop	de
 		call	dac_me
+		call	dac_fill
 .ctnotick:
 		pop	hl
 		pop	af
@@ -398,7 +331,218 @@ set_tempo:
 		ld	h,a		; HL <- AH
 		ld	(sbeatPtck),hl
 		ret
-	
+
+; ---------------------------------------------
+; do_multiply
+; 
+; Input:
+; hl - Start from
+; de - Multply by this
+; ---------------------------------------------
+
+; 			      ; GETPATPTR
+; 			      ; 		ld	HL,PATCHDATA
+; 	dc.b	$21,$86,$18
+; 			      ; 		ld	DE,39
+; 	dc.b	$11,$27,$00
+; 			      ; 		jr	MULADD
+; 	dc.b	$18,$03
+
+do_multiply:
+		ld	hl,0
+.mul_add:
+		srl	a
+		jr	nc,.mulbitclr
+		add	hl,de
+.mulbitclr:
+		ret	z
+		sla	e		; if more bits still set in A, DE*=2 and loop
+		rl	d
+		jr	.mul_add
+
+; --------------------------------------------------------
+; transferRom
+; 
+; Transfer bytes from ROM to Z80
+; 
+; Input:
+; a  - Source ROM address xx0000
+;  c - Byte count (00h NOT allowed)
+; hl - Source ROM address 00xxxx
+; de - Destination address
+; 
+; Uses:
+; b, ix
+; --------------------------------------------------------
+
+transferRom:
+		call	dac_me
+		push	ix
+		ld	ix,cpuComm
+		ld	(x68ksrclsb),hl
+		res	7,h
+		ld	b,0
+		dec	c
+		add	hl,bc
+		bit	7,h
+		jr	nz,.half_way
+	; single transfer
+		call	dac_me
+		call	dac_me
+		ld	hl,(x68ksrclsb)
+		inc	c
+		ld	b,a
+		call	.transfer
+		pop	ix
+		ret
+
+	; double transfer
+.half_way:
+		ld	b,a
+		push	bc
+		push	hl
+		ld	a,c
+		sub	a,l
+		ld	c,a
+		ld	hl,(x68ksrclsb)
+		call	.transfer
+		pop	hl
+		pop	bc
+		ld	c,l
+		inc	c
+		ld	a,(x68ksrcmid)
+		and	80h
+		add	a,80h
+		ld	h,a
+		ld	l,0
+		jr	nc,.x68knocarry
+		inc	b
+.x68knocarry:
+		call	.transfer
+		pop	ix
+		ret
+
+; b  - Source ROM xx0000
+;  c - Bytes to transfer (00h not allowed)
+; hl - Source ROM 00xxxx
+; de - Destination address
+; 
+; Uses:
+; a
+.transfer:
+		call	dac_me
+		push	de
+		ld	de,6000h
+		ld	a,h
+		rlc	a
+		ld	(de),a
+		ld	a,b
+		ld	(de),a
+		rra
+		ld	(de),a
+		rra
+		ld	(de),a
+		rra
+		call	dac_me
+		ld	(de),a
+		rra
+		ld	(de),a
+		rra
+		ld	(de),a
+		rra
+		ld	(de),a
+		rra
+		ld	(de),a
+		pop	de
+		set	7,h
+		call	dac_me
+		
+	; Transfer data in parts of 3bytes
+	; while playing DAC in the process
+		ld	a,c
+		ld	b,0
+		set	0,(ix+1)		; Tell to 68k that we are reading from ROM
+		sub	a,3
+		jr	c,.x68klast
+.x68kloop:
+		ld	c,3-1
+		bit	0,(ix)			; If 68k requested ROM block from here
+		jr	nz,.x68klpwt
+.x68klpcont:
+		ldir
+		call	dac_me
+		nop
+		nop
+		nop
+		sub	a,3-1
+		jp	nc,.x68kloop
+.x68klast:
+		add	a,3
+		ld	c,a
+		bit	0,(ix)			; If 68k requested ROM block from here
+		jp	nz,.x68klstwt
+.x68klstcont:
+		ldir
+		call	dac_me
+; 		call	dac_fill
+; 		call	dac_me
+		res	0,(ix+1)
+		ret
+
+; If 68k block ROM access:
+; TODO: This MIGHT cause the DAC to ran out of data
+
+; Mid-reading
+.x68klpwt:
+		res	0,(ix+1)		; Not touching ROM
+.x68kpwtlp:
+		call	dac_me
+		bit	0,(ix)			; Is ROM free?
+		jr	nz,.x68kpwtlp
+		set	0,(ix+1)		; Touching ROM again.
+		jr	.x68klpcont
+; Last write
+.x68klstwt:
+		res	0,(ix+1)		; Not touching ROM
+.x68klstwtlp:
+		call	dac_me
+		bit	0,(ix)			; Is ROM free?
+		jr	nz,.x68klstwtlp
+		set	0,(ix+1)		; Touching ROM again.
+		jr	.x68klstcont
+
+; ====================================================================
+; ----------------------------------------------------------------
+; Sound chip interaction routines
+; ----------------------------------------------------------------
+
+; ---------------------------------------------
+; FM send registers
+; 
+; Input:
+; d - ctrl
+; e - data
+; c - channel
+; ---------------------------------------------
+
+SndDrv_FmSet_1:
+		ld	a,d
+		ld	(Zym_ctrl_1),a
+		nop
+		ld	a,e
+		ld	(Zym_data_1),a
+		nop
+		ret
+
+SndDrv_FmSet_2:
+		ld	a,d
+		ld	(Zym_ctrl_2),a
+		nop
+		ld	a,e
+		ld	(Zym_data_2),a
+		nop	
+		ret
+
 ; --------------------------------------------------------
 ; psg_env
 ; 
@@ -413,193 +557,178 @@ psg_env:
 .vloop:
 		call	dac_me
 		ld	c,(iy+COM)		; c - current command
-		ld	(iy+COM),0		; reset
-.stop:
-		bit	2,c
+		ld	(iy+COM),0		; clear for the next one
+
+	; bit 2 - stop sound
+		bit	2,c			; bit 2?
 		jr	z,.ckof
-		ld	(iy+LEV),-1
-		ld	(iy+FLG),1
-		ld	(iy+MODE),0
-		ld	a,1
+		ld	(iy+LEV),-1		; reset level
+		ld	(iy+FLG),1		; and update
+		ld	(iy+MODE),0		; envelope off
+		ld	a,1			; PSG Channel 3?
 		cp	e
 		jr	nz,.ckof
-		ld	IX,PSGVTBLTG3
+		ld	ix,PSGVTBLTG3		; Unlock PSG3
 		res	5,(ix)
 .ckof:
-		bit	1,c
+	; bit 1 - key off
+		bit	1,c			; bit 1?
 		jr      z,.ckon
-		ld	a,(iy+MODE)
+		ld	a,(iy+MODE)		; envelope mode 0?
 		cp	0
 		jr	z,.ckon
-		ld	(iy+FLG),1
-		ld	(iy+MODE),4
+		ld	(iy+FLG),1		; psg update flag
+		ld	(iy+MODE),4		; set envelope mode 4
 .ckon:
-		bit	0,c
+	; bit 0 - key on
+		bit	0,c			; bit 0?
 		jr	z,.envproc
-		ld	(iy+LEV),-1
-		ld	a,(iy+DTL)
-		or	D
-		ld	(HL),a
-		ld	a,1
-		cp	E
-		jr	z,.nskip
-		ld	a,(iy+DTH)
-		ld	(Zpsg_ctrl),a
+		ld	(iy+LEV),-1		; reset level
+		ld	a,(iy+DTL)		; load frequency LSB or NOISE data
+		or	d			; OR with current channel
+		ld	(hl),a			; write it
+		ld	a,1			; NOISE channel?
+		cp	e
+		jr	z,.nskip		; then don't write next one
+		ld	a,(iy+DTH)		; Write PSG MSB frequency (1-3 only)
+		ld	(hl),a
 .nskip:
-		ld	(iy+FLG),1
-		ld	(iy+MODE),1
+		ld	(iy+FLG),1		; psg update flag
+		ld	(iy+MODE),1		; set to attack mode
 	
 	; ----------------------------
 	; Start processing
+	; current PSG channel
+	; ----------------------------
 .envproc:
 		call	dac_me
 		ld	a,(iy+MODE)
-		cp	0		; no modes
+		or	a			; no modes
 		jp	z,.vedlp
-		cp 	1		; attack mode
+		
+	; Attack mode
+		cp 	001b
 		jr	nz,.chk2
 .mode1:
-		ld	(iy+FLG),1
-		ld	a,(iy+LEV)
-		ld	b,(iy+ALV)
-		sub	a,(iy+ATK)
-		jr	c,.atkend
+		ld	(iy+FLG),1		; psg update flag
+		ld	a,(iy+LEV)		; a - current level (volume)
+		ld	b,(iy+ALV)		; b - attack level
+		sub	a,(iy+ATK)		; (attack rate) - (level)
+		jr	c,.atkend		; attack finished
 		jr	z,.atkend
-		ld	(iy+LEV),a
+		cp	b			; check level
+		jr	c,.atkend		; attack finished
+		jr	z,.atkend		
+		ld	(iy+LEV),a		; set new level
 		jp	.vedlp
 .atkend:
-		ld	(iy+LEV),b
-		ld	(iy+MODE),2
+		ld	(iy+LEV),b		; attack level = new level
+		ld	(iy+MODE),2		; set to decay mode
 		jp	.vedlp
 .chk2:
-		cp	2		; decay mode
+
+	; Decay mode
+		cp	010b
 		jp	nz,.chk4
-		ld	(iy+FLG),1
-		ld	a,(iy+LEV)
-		ld	b,(iy+SLV)
+		ld	(iy+FLG),1		; psg update flag
+		ld	a,(iy+LEV)		; a - Level
+		ld	b,(iy+SLV)		; b - Sustain
 		cp	b
-		jr	c,.dkadd
-		jr	z,.dkyend
-		sub	(iy+DKY)
-		jr	c,.dkyend
-		cp	b
-		jr	c,.dkyend
+		jr	c,.dkadd		; if carry: add
+		jr	z,.dkyend		; if zero:  finish
+		sub	(iy+DKY)		; substract decay rate
+		jr	c,.dkyend		; finish if wraped.
+		cp	b			; compare level
+		jr	c,.dkyend		; and finish
 		jr	.dksav
 .dkadd:
-		add	a,(iy+DKY)
-		jr	c,.dkyend
-		cp	b
+		add	a,(iy+DKY)		;  (level) + (decay rate)
+		jr	c,.dkyend		; finish if wraped.
+		cp	b			; compare level
 		jr	nc,.dkyend
 .dksav:
-		ld	(iy+LEV),a
+		ld	(iy+LEV),a		; save new level
 		jr	.vedlp
 .dkyend:
-		ld	(iy+LEV),b
-		ld	(iy+MODE),3
+		ld	(iy+LEV),b		; save sustain value
+		ld	(iy+MODE),3		; and set mode too.
 		jr	.vedlp
+
+	; Sustain phase
 .chk4:
-		cp	4		; sustain phase
+		cp	100b
 		jr	nz,.vedlp
-		ld	(iy+FLG),1
-		ld	a,(iy+LEV)
-		add 	a,(iy+RRT)
-		jr	c,.killenv
-		ld	(iy+LEV),a
+		ld	(iy+FLG),1		; psg update flag
+		ld	a,(iy+LEV)		; a - Level
+		add 	a,(iy+RRT)		; add Release Rate
+		jr	c,.killenv		; release done
+		ld	(iy+LEV),a		; set new Level
 		jr	.vedlp
 .killenv:
-		ld	(iy+LEV),-1
-		ld	(iy+MODE),0
-		ld	a,1
+		ld	(iy+LEV),-1		; Silence this channel
+		ld	(iy+MODE),0		; Reset mode
+		ld	a,1			; PSG Channel 3?
 		cp	e
 		jr	nz,.vedlp
-		ld	ix,PSGVTBLTG3
+		ld	ix,PSGVTBLTG3		; Unlock PSG3
 		res	5,(ix)
 .vedlp:
-		inc	iy
-		ld	a,20h
+		inc	iy			; next COM to check
+		ld	a,20h			; next PSG channel
 		add	a,d
 		ld	d,a
 		dec	e
 		jp	nz,.vloop
-		
+
 	; ----------------------------
 	; Set volumes
 		call	dac_me
 		ld	iy,psgcom
 		ld	ix,Zpsg_ctrl
-		ld	de,20h
+		ld	hl,90h		; Channel + volumeset bit
+		ld	de,20h		; next channel increment
 		ld	b,4
-		ld	hl,90h
 .nextpsg:
-		add	hl,de
-		bit	0,(iy+FLG)
+		bit	0,(iy+FLG)	; PSG update?
 		jr	z,.flgoff
-		ld	(iy+FLG),0
-		ld	a,(iy+LEV)
+		ld	(iy+FLG),0	; Reset until next one
+		ld	a,(iy+LEV)	; a - Level
+		srl	a		; (Level >> 4)
 		srl	a
 		srl	a
 		srl	a
-		srl	a
-		or	l
-		ld	(ix),a
+		or	l		; merge Channel bits
+		ld	(ix),a		; Write volume
 .flgoff:
-		add	hl,de
-		inc	iy
+		add	hl,de		; next channel
+		inc	iy		; next com
 		djnz	.nextpsg
 		call	dac_me
 		ret
 
-; 		call	dac_me
-; 		ld	iy,psgcom
-; 		ld	b,4
-; 		ld	e,90h
-; .uch1:
-; 		bit	0,(iy+FLG)
-; 		jr	z,.uch2
-; 		ld	(iy+FLG),0
-; 		ld	a,(iy+LEV)
-; 		srl	a
-; 		srl	a
-; 		srl	a
-; 		srl	a
-; 		or	90h
-; 		ld	(hl),a
-; .uch2:
-; 		bit	0,(iy+(FLG+1))
-; 		jr	z,.uch3
-; 		ld	(iy+(FLG+1)),0
-; 		ld	a,(iy+(LEV+1))
-; 		srl	a
-; 		srl	a
-; 		srl	a
-; 		srl	a
-; 		or	0B0h
-; 		ld	(hl),a
-; .uch3:
-; 		bit	0,(iy+(FLG+2))
-; 		jr	z,.uch4
-; 		ld	(iy+(FLG+2)),0
-; 		ld	a,(iy+(LEV+2))
-; 		srl	a
-; 		srl	a
-; 		srl	a
-; 		srl	a
-; 		or	0D0h
-; 		ld	(hl),a
-; .uch4:
-; 		bit	0,(iy+(FLG+3))
-; 		jr	z,.vquit
-; 		ld	(iy+(FLG+3)),0
-; 		ld	a,(iy+(LEV+3))
-; 		srl	a
-; 		srl	a
-; 		srl	a
-; 		srl	a
-; 		or	0F0h
-; 		ld	(hl),a
-; .vquit:
-; 		call	dac_me
-; 		ret
+; --------------------------------------------------------
+; dac_play
+; 
+; Plays a new sample
+; --------------------------------------------------------
+
+dac_play:
+		exx
+		ld	bc,dWaveFifo>>8			; bc - WAVFIFO MSB
+		ld	de,(wave_Pitch)			; de - Pitch
+		ld	hl,0				; hl - WAVFIFO LSB pointer (xx.00)
+		exx
+		ld	hl,(wave_Start)
+		ld 	a,(wave_Start+2)
+		ld	(dDacPntr),hl
+		ld	(dDacPntr+2),a
+		ld	hl,(wave_End)
+		ld 	a,(wave_End+2)
+		ld	(dDacCntr),hl
+		ld	(dDacCntr+2),a
+		call	dac_firstfill
+		dacStream True
+		ret
 
 ; --------------------------------------------------------
 ; dac_me
@@ -607,26 +736,28 @@ psg_env:
 ; Writes wave data to DAC using data stored on FIFO.
 ; Call this routine every 6 or more lines of code
 ; (use any emu-debugger to check if it still plays
-; at 16000hz)
+; at stable 16000hz)
 ;
 ; Input (EXX):
-;  c - WAVEFIFO pointer MSB
-; de - Pitch (00.00)
-; hl - FIFO LSB
-;
-; Uses:
+;  c - WAVEFIFO MSB
+; de - Pitch (xx.00)
+; h  - WAVEFIFO LSB (as xx.00)
+; 
+; Uses (EXX):
+; b
+; 
 ; *** self-modifiable code ***
 ; --------------------------------------------------------
 
 dac_me:		exx				; <-- self-changes between EXX(play) and RET(stop)
 		ex	af,af'
 		ld	b,l
+		ld	a,2Ah
+		ld	(Zym_ctrl_1),a
 		ld	l,h
 		ld	h,c
-		ld	a,2Ah
-		ld	(4000h),a
 		ld	a,(hl)
-		ld	(4001h),a
+		ld	(Zym_data_1),a
 		ld	h,l
 		ld	l,b
 		add	hl,de
@@ -637,9 +768,7 @@ dac_me:		exx				; <-- self-changes between EXX(play) and RET(stop)
 ; --------------------------------------------------------
 ; dac_fill
 ; 
-; Refill half of the WAVE FIFO data
-; if it reaches the end of one of the
-; top or bottom sections
+; Refills a half of the WAVE FIFO data, automatic
 ; 
 ; *** self-modifiable code ***
 ; --------------------------------------------------------
@@ -653,13 +782,13 @@ dac_fill:	push	af			; <-- self-changes between PUSH AF(play) and RET(stop)
 		jp	nz,dac_refill
 		pop	af
 		ret
-		
 ; first time
 dac_firstfill:
-; 		call	drv_chktick
+		call	check_tick
 		push	af
 
-; auto-fill
+; If auto-fill is needed
+; TODO: improve this later
 dac_refill:
 		call	dac_me
 		push	bc
@@ -768,231 +897,6 @@ dac_refill:
 		pop	bc
 		pop	af
 		ret
-
-; --------------------------------------------------------
-; dac_reset
-; 
-; Plays a new sample
-; --------------------------------------------------------
-
-dac_reset:
-		exx
-		ld	bc,dWaveFifo>>8			; bc - 0
-		ld	de,(wave_Pitch)			; de - Pitch
-		ld	hl,0				; hl - FIFO pointer (00.00)
-		exx
-		ld	hl,(wave_Start)
-		ld 	a,(wave_Start+2)
-		ld	(dDacPntr),hl
-		ld	(dDacPntr+2),a
-		ld	hl,(wave_End)
-		ld 	a,(wave_End+2)
-		ld	(dDacCntr),hl
-		ld	(dDacCntr+2),a
-		call	dac_firstfill
-		dacStream True
-		ret
-
-; --------------------------------------------------------
-; transferRom
-; 
-; Transfer bytes from ROM to Z80
-; 
-; Input:
-; a  - Source ROM address xx0000
-;  c - Byte count (00h NOT allowed)
-; hl - Source ROM address 00xxxx
-; de - Destination address
-; 
-; Uses:
-; b, ix
-; --------------------------------------------------------
-
-transferRom:
-		call	dac_me
-		push	ix
-		ld	ix,cpuComm
-		ld	(x68ksrclsb),hl
-		res	7,h
-		ld	b,0
-		dec	c
-		add	hl,bc
-		bit	7,h
-		jr	nz,.half_way
-		ld	hl,(x68ksrclsb)
-		inc	c
-		ld	b,a
-		call	.transfer
-		pop	ix
-.badlen:
-		ret
-.half_way:
-
-		ld	b,a
-		push	bc
-		push	hl
-		ld	a,c
-		sub	a,l
-		ld	c,a
-		ld	hl,(x68ksrclsb)
-		call	.transfer
-		pop	hl
-		pop	bc
-		ld	c,l
-		inc	c
-		ld	a,(x68ksrcmid)
-		and	80h
-		add	a,80h
-		ld	h,a
-		ld	l,0
-		jr	nc,.x68knocarry
-		inc	b
-.x68knocarry:
-		call	.transfer
-		pop	ix
-		ret
-
-; b  - Source ROM xx0000
-;  c - Bytes to transfer (00h not allowed)
-; hl - Source ROM 00xxxx
-; de - Destination address
-; 
-; Uses:
-; a
-.transfer:
-		call	dac_me
-		push	de
-		ld	de,6000h
-		ld	a,h
-		rlc	a
-		ld	(de),a
-		ld	a,b
-		ld	(de),a
-		rra
-		ld	(de),a
-		rra
-		ld	(de),a
-		rra
-		ld	(de),a
-		rra
-		ld	(de),a
-		rra
-		ld	(de),a
-		rra
-		ld	(de),a
-		rra
-		ld	(de),a
-		pop	de
-		call	dac_me
-		set	7,h
-
-	; Transfer data in parts of 3bytes
-	; while playing DAC in the process
-		ld	a,c
-		ld	b,0
-		set	0,(ix+1)		; Tell to 68k that we are reading from ROM
-		sub	a,3
-		jr	c,.x68klast
-.x68kloop:
-		ld	c,3-1
-		bit	0,(ix)			; If 68k requested ROM block from here
-		jr	nz,.x68klpwt
-.x68klpcont:
-		ldir
-		call	dac_me
-		nop
-		nop
-; 		nop
-		sub	a,3-1
-		jp	nc,.x68kloop
-.x68klast:
-		add	a,3
-		ld	c,a
-		bit	0,(ix)			; If 68k requested ROM block from here
-		jp	nz,.x68klstwt
-.x68klstcont:
-		ldir
-		call	dac_me
-		call	dac_fill
-		res	0,(ix+1)
-		ret
-
-; If 68k block ROM access:
-; TODO: This MIGHT cause the DAC to ran out of data
-
-; Mid-reading
-.x68klpwt:
-		res	0,(ix+1)		; Not touching ROM
-.x68kpwtlp:
-		call	dac_me
-		bit	0,(ix)			; Is ROM free?
-		jr	nz,.x68kpwtlp
-		set	0,(ix+1)		; Touching ROM again.
-		jr	.x68klpcont
-; Last write
-.x68klstwt:
-		res	0,(ix+1)		; Not touching ROM
-.x68klstwtlp:
-		call	dac_me
-		bit	0,(ix)			; Is ROM free?
-		jr	nz,.x68klstwtlp
-		set	0,(ix+1)		; Touching ROM again.
-		jr	.x68klstcont
-
-; ---------------------------------------------
-; FM send registers
-; 
-; Input:
-; d - ctrl
-; e - data
-; c - channel
-; ---------------------------------------------
-
-SndDrv_FmSet_1:
-		ld	a,d
-		ld	(Zym_ctrl_1),a
-		nop
-		ld	a,e
-		ld	(Zym_data_1),a
-		nop
-		ret
-
-SndDrv_FmSet_2:
-		ld	a,d
-		ld	(Zym_ctrl_2),a
-		nop
-		ld	a,e
-		ld	(Zym_data_2),a
-		nop	
-		ret
-
-; ---------------------------------------------
-; do_multiply
-; 
-; Input:
-; hl - Start from
-; de - Multply by this
-; ---------------------------------------------
-
-; 			      ; GETPATPTR
-; 			      ; 		ld	HL,PATCHDATA
-; 	dc.b	$21,$86,$18
-; 			      ; 		ld	DE,39
-; 	dc.b	$11,$27,$00
-; 			      ; 		jr	MULADD
-; 	dc.b	$18,$03
-
-do_multiply:
-		ld	hl,0
-.mul_add:
-		srl	a
-		jr	nc,.mulbitclr
-		add	hl,de
-.mulbitclr:
-		ret	z
-		sla	e		; if more bits still set in A, DE*=2 and loop
-		rl	d
-		jr	.mul_add
 			      
 ; ====================================================================
 ; ----------------------------------------------------------------
@@ -1358,8 +1262,8 @@ wave_End	dw (TEST_WAV_E-TEST_WAV)&0FFFFh
 		db (TEST_WAV_E-TEST_WAV)>>16
 wave_Loop	dw 0
 		db 0
-wave_Pitch	dw 100h
-wav_Flags	db 101b				; WAVE playback flags (%1xx: 01 loop / 10 end)
+wave_Pitch	dw 100h				; 01.00h
+wav_Flags	db 101b				; WAVE playback flags (%1xx: 01 loop / 10 no loop)
 
 ; --------------------------------------------------------
 ; Internal
@@ -1367,25 +1271,26 @@ wav_Flags	db 101b				; WAVE playback flags (%1xx: 01 loop / 10 end)
 
 		org 01C00h			; align to 0038h
 dWaveFifo	ds 100h				; WAVE data buffer, updated by 128bytes
-cmdfifo		ds 64
+cmdfifo		ds 64				; Buffer for command requests
+
 MBOXES		ds 32				; GEMS mailboxes
 cpuComm		db 0,0				; 68k ROM block flag, z80 reading bit
 tickFlag	dw 0				; Tick flag (from VBlank), Use tickFlag+1 for reading/reseting
 tickCnt		db 0				; Tick counter (KEEP IT AFTER tickFlag)
 
-sbeatPtck	dw 204*64			; sub beats per tick (8frac), default is 120bpm
+sbeatPtck	dw 204				; sub beats per tick (8frac), default is 120bpm
 sbeatAcc	dw 0				; accumulates ^^ each tick to track sub beats
-tickGotFlags	db 0				; (old: TBASEFLAGS)		      
-dDacPntr	db 0,0,0			; WAVE current position
-dDacCntr	db 0,0,0			; WAVE fileread counter
-dDacFifoMid	db 0				; WAVE current FIFO next halfway bitcheck
+currTickBits	db 0				; (old: TBASEFLAGS)		      
+dDacPntr	db 0,0,0			; WAVE current ROM position
+dDacCntr	db 0,0,0			; WAVE length counter
+dDacFifoMid	db 0				; WAVE current FIFO next halfway section
 x68ksrclsb	db 0
 x68ksrcmid	db 0
 commRead	db 0				; read pointer (here)
 commWrite	db 0				; cmd fifo wptr (from 68k)
 
 psgcom		db 00h,00h,00h,00h		;  0 command 1 = key on, 2 = key off, 4 = stop snd
-psglev		db 0FFh,0FFh,0FFh,0FFh		;  4 output level attenuation (4 bit)
+psglev		db  -1, -1, -1, -1		;  4 output level attenuation (4 bit)
 psgatk		db 00h,00h,00h,00h		;  8 attack rate
 psgdec		db 00h,00h,00h,00h		; 12 decay rate
 psgslv		db 00h,00h,00h,00h		; 16 sustain level attenuation

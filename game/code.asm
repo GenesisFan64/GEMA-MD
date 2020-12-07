@@ -52,121 +52,21 @@ RAM_CurrSelect	ds.w 1
 ; ----------------------------------------------------------------
 
 FmEd_Loop:
-; 		move.w	(vdp_ctrl),d4
-; 		btst	#bitVBlnk,d4
-; 		beq.s	FmEd_Loop
-; 		bsr	System_Input
-; .wait:		move.w	(vdp_ctrl),d4
-; 		btst	#bitVBlnk,d4
-; 		bne.s	.wait
-; 		
-; 		
-; 	; C / START
-; 		lea	(RAM_PlyrCurrIds),a3
-; 		move.w	(Controller_1+on_press).l,d3
-; 		btst	#bitJoyC,d3
-; 		beq.s	.noc
-; 		move.w	(RAM_CurrTrack),d0
-; 		add.w	d0,d0
-; 		move.w	(a3,d0.w),d0
-; 		bsr	SndTest_PlaySound
-; .noc:
-; 		move.w	(Controller_1+on_press).l,d3
-; 		btst	#bitJoyStart,d3
-; 		beq.s	.nost
-; 		moveq	#2,d0
-; 		move.w	(RAM_CurrTrack),d1
-; 		bsr	Sound_StopTrack
-; .nost:
-; 
-; 		move.w	(Controller_1+on_hold).l,d3
-; 		btst	#bitJoyB,d3
-; 		bne.s	.on_b_hold
-; 
-; 	; UP DOWN LEFT RIGHT
-; 		lea	(RAM_CurrSelect),a3
-; 		move.w	(Controller_1+on_press).l,d3
-; 		btst	#bitJoyRight,d3
-; 		beq.s	.nor
-; 		add.w	#1,(a3)
-; 		and.w	#1,(a3)
-; 		bsr	SndTest_Update
-; .nor:
-; 		move.w	(Controller_1+on_press).l,d3
-; 		btst	#bitJoyLeft,d3
-; 		beq.s	.nol
-; 		sub.w	#1,(a3)
-; 		and.w	#1,(a3)
-; 		bsr	SndTest_Update
-; .nol:
-; 		lea	(RAM_CurrTrack),a3
-; 		move.w	(Controller_1+on_press).l,d3
-; 		btst	#bitJoyUp,d3
-; 		beq.s	.nou
-; 		tst.w	(a3)
-; 		beq.s	.nou
-; 		sub.w	#1,(a3)
-; 		bsr	SndTest_Update
-; .nou:
-; 		move.w	(Controller_1+on_press).l,d3
-; 		btst	#bitJoyDown,d3
-; 		beq.s	.nod
-; 		cmp.w	#VAR_MAXTRACK,(a3)
-; 		beq.s	.nod
-; 		add.w	#1,(a3)
-; 		bsr	SndTest_Update
-; .nod:
-; 
-; 		bra	FmEd_Loop
-; 		
-; 		
-; ; B HOLD
-; ; a3 - list
-; .on_b_hold:
-; 		lea	(RAM_PlyrCurrIds),a3
-; 		tst.w	(RAM_CurrSelect)
-; 		beq.s	.no_ids_pick
-; 		lea	(RAM_PlyrCurrVol),a3
-; .no_ids_pick:
-; 		move.w	(Controller_1+on_press).l,d3
-; 		btst	#bitJoyRight,d3
-; 		beq.s	.nor2
-; 		move.w	(RAM_CurrTrack),d0
-; 		add.w	d0,d0
-; 		add.w	#1,(a3,d0.w)
-; 		bsr	SndTest_Update	
-; .nor2:
-; 		move.w	(Controller_1+on_press).l,d3
-; 		btst	#bitJoyLeft,d3
-; 		beq.s	.nol2
-; 		move.w	(RAM_CurrTrack),d0
-; 		add.w	d0,d0
-; 		sub.w	#1,(a3,d0.w)
-; 		bsr	SndTest_Update	
-; .nol2:
+		move.w	(vdp_ctrl),d4
+		btst	#bitVBlnk,d4
+		beq.s	FmEd_Loop
+		bsr	System_Input
+.wait:		move.w	(vdp_ctrl),d4
+		btst	#bitVBlnk,d4
+		bne.s	.wait
 
-; 		move.w	(Controller_1+on_press).l,d3
-; 		lea	(RAM_PlyrCurrIds),a3
-; 
-; 		btst	#bitJoyRight,d3
-; 		beq.s	.nor2
-; 		move.w	(RAM_CurrTrack),d0
-; 		add.w	d0,d0
-; 		cmp.w	#VAR_MAXSONGS,(a3,d0.w)
-; 		beq.s	.nor2
-; 		add.w	#1,(a3,d0.w)
-; 		bsr	SndTest_Update
-; .nor2:
-; 		move.w	(Controller_1+on_press).l,d3
-; 		btst	#bitJoyLeft,d3
-; 		beq.s	.nol2
-; 		move.w	(RAM_CurrTrack),d0
-; 		add.w	d0,d0
-; 		tst.w	(a3,d0.w)
-; 		beq.s	.nol2
-; 		sub.w	#1,(a3,d0.w)
-; 		bsr	SndTest_Update
-; .nol2:
+		move.w	(Controller_1+on_press).l,d3
+		btst	#bitJoyC,d3
+		beq.s	.noc
+		nop
+		nop
+		nop
+.noc:
 
 		bra	FmEd_Loop
 		
