@@ -63,6 +63,7 @@ FmEd_Loop:
 		move.w	(Controller_1+on_press).l,d3
 		btst	#bitJoyC,d3
 		beq.s	.noc
+		
 		nop
 		nop
 		nop

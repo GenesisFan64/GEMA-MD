@@ -131,9 +131,9 @@ drv_loop:
 .neithertick:
 ; 		call	apply_bend
 
-		ld	a,(commWrite)
+		ld	a,(commZWrite)
 		ld	b,a
-		ld	a,(commRead)
+		ld	a,(commZRead)
 		cp	b
 		jp	z,drv_loop
 
@@ -257,9 +257,9 @@ get_cmdbyte:
 .getcbytel:
 		call	dac_me
 		call	dac_fill
-		ld	a,(commWrite)
+		ld	a,(commZWrite)
 		ld	b,a
-		ld	a,(commRead)
+		ld	a,(commZRead)
 		cp	b
 		jp	z,.getcbytel		; wait for a command from 68k
 		ld	b,0
@@ -269,7 +269,7 @@ get_cmdbyte:
 		add	hl,bc
 		inc	a
 		and	3Fh			; limit to 64
-		ld	(commRead),a
+		ld	(commZRead),a
 		ld	a,(hl)
 		pop	hl
 		pop	bc
@@ -367,18 +367,22 @@ do_multiply:
 ; 
 ; Input:
 ; a  - Source ROM address xx0000
-;  c - Byte count (00h NOT allowed)
+; bc - Byte count (0000h NOT allowed)
 ; hl - Source ROM address 00xxxx
 ; de - Destination address
 ; 
 ; Uses:
 ; b, ix
+; 
+; Notes:
+; call dac_fill first if transfering anything
+; other than WAV sample data, just to be safe
 ; --------------------------------------------------------
 
 transferRom:
 		call	dac_me
 		push	ix
-		ld	ix,cpuComm
+		ld	ix,commZRomBlk
 		ld	(x68ksrclsb),hl
 		res	7,h
 		ld	b,0
@@ -470,9 +474,8 @@ transferRom:
 		jr	nz,.x68klpwt
 .x68klpcont:
 		ldir
+		nop
 		call	dac_me
-		nop
-		nop
 		nop
 		sub	a,3-1
 		jp	nc,.x68kloop
@@ -490,13 +493,15 @@ transferRom:
 		ret
 
 ; If 68k block ROM access:
-; TODO: This MIGHT cause the DAC to ran out of data
+; TODO: This MIGHT cause the DAC to run out of data
 
 ; Mid-reading
 .x68klpwt:
 		res	0,(ix+1)		; Not touching ROM
 .x68kpwtlp:
+		nop
 		call	dac_me
+		nop
 		bit	0,(ix)			; Is ROM free?
 		jr	nz,.x68kpwtlp
 		set	0,(ix+1)		; Touching ROM again.
@@ -505,7 +510,9 @@ transferRom:
 .x68klstwt:
 		res	0,(ix+1)		; Not touching ROM
 .x68klstwtlp:
+		nop
 		call	dac_me
+		nop
 		bit	0,(ix)			; Is ROM free?
 		jr	nz,.x68klstwtlp
 		set	0,(ix+1)		; Touching ROM again.
@@ -1274,7 +1281,9 @@ dWaveFifo	ds 100h				; WAVE data buffer, updated by 128bytes
 cmdfifo		ds 64				; Buffer for command requests
 
 MBOXES		ds 32				; GEMS mailboxes
-cpuComm		db 0,0				; 68k ROM block flag, z80 reading bit
+
+
+
 tickFlag	dw 0				; Tick flag (from VBlank), Use tickFlag+1 for reading/reseting
 tickCnt		db 0				; Tick counter (KEEP IT AFTER tickFlag)
 
@@ -1286,8 +1295,10 @@ dDacCntr	db 0,0,0			; WAVE length counter
 dDacFifoMid	db 0				; WAVE current FIFO next halfway section
 x68ksrclsb	db 0
 x68ksrcmid	db 0
-commRead	db 0				; read pointer (here)
-commWrite	db 0				; cmd fifo wptr (from 68k)
+commZRead	db 0				; read pointer (here)
+commZWrite	db 0				; cmd fifo wptr (from 68k)
+commZRomBlk	db 0				; 68k ROM block flag
+commZRomRd	db 0				; Z80 is reading ROM bit
 
 psgcom		db 00h,00h,00h,00h		;  0 command 1 = key on, 2 = key off, 4 = stop snd
 psglev		db  -1, -1, -1, -1		;  4 output level attenuation (4 bit)
