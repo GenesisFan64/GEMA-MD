@@ -75,7 +75,7 @@ CodeBank:
 
 		align $8000
 TEST_WAV:
-		binclude "FEEL.wav",$2C,$3587E4
+		binclude "FEEL.wav",$2C;,$3587E4
 TEST_WAV_E:
 		
 ; ====================================================================

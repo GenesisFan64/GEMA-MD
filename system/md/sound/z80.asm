@@ -66,6 +66,9 @@ dacStream	macro option
 		ld	sp,2000h		; Set stack at the end of Z80
 		jr	z80_init		; Jump to z80_init
 		
+testval1	dw 0
+testval2	dw 0
+
 ; --------------------------------------------------------
 ; Z80 Interrupt at 0038h
 ; 
@@ -73,7 +76,7 @@ dacStream	macro option
 ; --------------------------------------------------------
 
 		org 0038h			; Align to 0038h
-		ld	(tickFlag),sp		; Use sp to set TICK request (Set xx1F)
+		ld	(tickFlag),sp		; Use sp to set TICK request (Sets xx1F)
 		di				; Disable interrupt until next request
 		ret
 
@@ -85,7 +88,7 @@ z80_init:
 		call	gema_init		; Initilize VBLANK sound driver
 		call	dac_play
 		ei
-
+		
 ; --------------------------------------------------------
 ; MAIN LOOP
 ; --------------------------------------------------------
@@ -95,14 +98,13 @@ drv_loop:
 		call	check_tick		; Check for tick on VBlank
 		call	dac_fill
 		call	dac_me
-		
-	; Check for tick and tempo
+
+	; Check for tick and tempo	
 		ld	b,0			; b - Reset current flags (beat|tick)
 		ld	a,(tickCnt)		
 		sub	1
 		jr	c,.noticks
 		ld	(tickCnt),a
-		call	dac_me
 		call	psg_env			; Do PSG effects
 		call	check_tick		; Check for another tick
 		ld 	b,1			; Set TICK (01b) flag
@@ -120,6 +122,7 @@ drv_loop:
 		ld	a,b
 		or	a
 		jr	z,.neithertick
+		call	dac_me
 		ld	(currTickBits),a	; Save bits
 ; 		call	doenvelope
 		call	check_tick
@@ -127,9 +130,12 @@ drv_loop:
 		call	check_tick
 ; 		call	updseq
 		call	check_tick
-
+; 
 .neithertick:
 ; 		call	apply_bend
+; 		ld	b,7
+; 		djnz	$
+; 		call	dac_me
 
 		ld	a,(commZWrite)
 		ld	b,a
@@ -206,7 +212,7 @@ drv_loop:
 
 ; ====================================================================
 ; ----------------------------------------------------------------
-; Sound code
+; Sound playback code
 ; ----------------------------------------------------------------
 
 ; --------------------------------------------------------
@@ -239,13 +245,15 @@ gema_init:
 		call	SndDrv_FmSet_1
 		ld	de,2B00h
 		call	SndDrv_FmSet_1	
-		ld	hl,dWaveFifo			; Initilize WAVE FIFO
-		ld	de,dWaveFifo+1
+		ld	hl,dWaveBuff			; Initilize WAVE FIFO
+		ld	de,dWaveBuff+1
 		ld	bc,100h-1
 		ld	(hl),80h
 		ldir
 		ret
-		
+
+apply_bend:
+
 ; ====================================================================
 ; ----------------------------------------------------------------
 ; Subroutines
@@ -391,8 +399,6 @@ transferRom:
 		bit	7,h
 		jr	nz,.half_way
 	; single transfer
-		call	dac_me
-		call	dac_me
 		ld	hl,(x68ksrclsb)
 		inc	c
 		ld	b,a
@@ -558,6 +564,7 @@ SndDrv_FmSet_2:
 
 psg_env:
 		ld	iy,psgcom
+		ld	ix,PSGVTBLTG3		; Byte for Unlocking PSG3
 		ld	hl,Zpsg_ctrl
 		ld	d,80h			; PSG first ctrl command
 		ld	e,4			; 4 channels
@@ -575,8 +582,7 @@ psg_env:
 		ld	a,1			; PSG Channel 3?
 		cp	e
 		jr	nz,.ckof
-		ld	ix,PSGVTBLTG3		; Unlock PSG3
-		res	5,(ix)
+		res	5,(ix)			; Unlock PSG3
 .ckof:
 	; bit 1 - key off
 		bit	1,c			; bit 1?
@@ -677,8 +683,7 @@ psg_env:
 		ld	a,1			; PSG Channel 3?
 		cp	e
 		jr	nz,.vedlp
-		ld	ix,PSGVTBLTG3		; Unlock PSG3
-		res	5,(ix)
+		res	5,(ix)			; Unlock PSG3
 .vedlp:
 		inc	iy			; next COM to check
 		ld	a,20h			; next PSG channel
@@ -721,9 +726,9 @@ psg_env:
 
 dac_play:
 		exx
-		ld	bc,dWaveFifo>>8			; bc - WAVFIFO MSB
+		ld	bc,dWaveBuff>>8			; bc - WAVFIFO MSB
 		ld	de,(wave_Pitch)			; de - Pitch
-		ld	hl,0				; hl - WAVFIFO LSB pointer (xx.00)
+		ld	hl,(dWaveBuff&0FFh)<<8			; hl - WAVFIFO LSB pointer (xx.00)
 		exx
 		ld	hl,(wave_Start)
 		ld 	a,(wave_Start+2)
@@ -795,7 +800,7 @@ dac_firstfill:
 		push	af
 
 ; If auto-fill is needed
-; TODO: improve this later
+; TODO: improve this.
 dac_refill:
 		call	dac_me
 		push	bc
@@ -814,7 +819,7 @@ dac_refill:
 		sbc	a,0
 		ld	(dDacCntr+2),a
 		ld	(dDacCntr),hl
-		ld	d,dWaveFifo>>8
+		ld	d,dWaveBuff>>8
 		or	a
 		jp	m,.FDF4DONE
 ; 		jr	c,.FDF4DONE
@@ -837,7 +842,7 @@ dac_refill:
 		ld	(dDacPntr+2),a
 		jp	.FDFreturn
 .FDF4DONE:
-		ld	d,dWaveFifo>>8
+		ld	d,dWaveBuff>>8
 		ld	a,(wav_Flags)
 		cp	101b
 		jp	z,.FDF72
@@ -910,7 +915,128 @@ dac_refill:
 ; Tables
 ; ----------------------------------------------------------------
 
-fmFreq_List:	dw 644			; C-0
+wavFreq_List:	dw 100h		; C-0
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h	
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h		; C-1
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h	
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h		; C-2
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 03Bh
+		dw 03Eh		; C-3 5512
+		dw 043h		; C#3
+		dw 046h		; D-3
+		dw 049h		; D#3
+		dw 04Eh		; E-3
+		dw 054h		; F-3
+		dw 058h		; F#3
+		dw 05Eh		; G-3 8363 -17
+		dw 063h		; G#3
+		dw 068h		; A-3
+		dw 070h		; A#3
+		dw 075h		; B-3
+		dw 07Fh		; C-4 11025 -12
+		dw 088h		; C#4
+		dw 08Fh		; D-4
+		dw 097h		; D#4
+		dw 0A0h		; E-4
+		dw 0ADh		; F-4
+		dw 0B5h		; F#4
+		dw 0C0h		; G-4
+		dw 0CCh		; G#4
+		dw 0D7h		; A-4
+		dw 0E7h		; A#4
+		dw 0F0h		; B-4
+		dw 100h		; C-5 22050
+		dw 110h		; C#5
+		dw 120h		; D-5
+		dw 12Ch		; D#5
+		dw 142h		; E-5
+		dw 158h		; F-5
+		dw 16Ah		; F#5 32000 +6
+		dw 17Eh		; G-5
+		dw 190h		; G#5
+		dw 1ACh		; A-5
+		dw 1C2h		; A#5
+		dw 1E0h		; B-5
+		dw 1F8h		; C-6 44100 +12
+		dw 210h		; C#6
+		dw 240h		; D-6
+		dw 260h		; D#6
+		dw 280h		; E-6
+		dw 2A0h		; F-6
+		dw 2D0h		; F#6
+		dw 2F8h		; G-6
+		dw 320h		; G#6
+		dw 350h		; A-6
+		dw 380h		; A#6
+		dw 3C0h		; B-6
+		dw 400h		; C-7 88200
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h	
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h	
+		dw 100h		; C-8
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h	
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h	
+		dw 100h		; C-9
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h	
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h
+		dw 100h
+
+fmFreq_List:	dw 644		; C-0
 		dw 681
 		dw 722
 		dw 765
@@ -1045,131 +1171,88 @@ psgFreq_List:
  		dw 9h
  		dw 8h
 		dw 0		; use +60 if using C-5 for tone 3 noise
-		
-wavFreq_List:	dw 100h		; C-0
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h	
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h		; C-1
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h	
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h		; C-2
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 03Bh
-		dw 03Eh		; C-3 5512
-		dw 043h		; C#3
-		dw 046h		; D-3
-		dw 049h		; D#3
-		dw 04Eh		; E-3
-		dw 054h		; F-3
-		dw 058h		; F#3
-		dw 05Eh		; G-3 8363 -17
-		dw 063h		; G#3
-		dw 068h		; A-3
-		dw 070h		; A#3
-		dw 075h		; B-3
-		dw 07Fh		; C-4 11025 -12
-		dw 088h		; C#4
-		dw 08Fh		; D-4
-		dw 097h		; D#4
-		dw 0A0h		; E-4
-		dw 0ADh		; F-4
-		dw 0B5h		; F#4
-		dw 0C0h		; G-4
-		dw 0CCh		; G#4
-		dw 0D7h		; A-4
-		dw 0E7h		; A#4
-		dw 0F0h		; B-4
-		dw 100h		; C-5 22050
-		dw 110h		; C#5
-		dw 120h		; D-5
-		dw 12Ch		; D#5
-		dw 142h		; E-5
-		dw 158h		; F-5
-		dw 16Ah		; F#5 32000 +6
-		dw 17Eh		; G-5
-		dw 190h		; G#5
-		dw 1ACh		; A-5
-		dw 1C2h		; A#5
-		dw 1E0h		; B-5
-		dw 1F8h		; C-6 44100 +12
-		dw 210h		; C#6
-		dw 240h		; D-6
-		dw 260h		; D#6
-		dw 280h		; E-6
-		dw 2A0h		; F-6
-		dw 2D0h		; F#6
-		dw 2F8h		; G-6
-		dw 320h		; G#6
-		dw 350h		; A-6
-		dw 380h		; A#6
-		dw 3C0h		; B-6
-		dw 400h		; C-7 88200
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h	
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h	
-		dw 100h		; C-8
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h	
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h	
-		dw 100h		; C-9
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h	
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h
-		dw 100h
+
+patch_Data	ds 40h*16
 
 ; ====================================================================
 ; ----------------------------------------------------------------
-; MUSIC DATA
+; Z80 RAM
+; ----------------------------------------------------------------
+
+; --------------------------------------------------------
+; Internal
+; --------------------------------------------------------
+
+		align 100h
+dWaveBuff	ds 100h				; WAVE data buffer, updated by 128bytes
+cmdfifo		ds 64				; Buffer for command requests
+
+MBOXES		ds 32				; GEMS mailboxes
+
+tickFlag	dw 0				; Tick flag (from VBlank), Use tickFlag+1 for reading/reseting
+tickCnt		db 0				; Tick counter (KEEP IT AFTER tickFlag)
+
+sbeatPtck	dw 204				; sub beats per tick (8frac), default is 120bpm
+sbeatAcc	dw 0				; accumulates ^^ each tick to track sub beats
+currTickBits	db 0				; (old: TBASEFLAGS)		      
+dDacPntr	db 0,0,0			; WAVE current ROM position
+dDacCntr	db 0,0,0			; WAVE length counter
+dDacFifoMid	db 0				; WAVE current FIFO next halfway section
+x68ksrclsb	db 0
+x68ksrcmid	db 0
+commZRead	db 0				; read pointer (here)
+commZWrite	db 0				; cmd fifo wptr (from 68k)
+commZRomBlk	db 0				; 68k ROM block flag
+commZRomRd	db 0				; Z80 is reading ROM bit
+
+psgcom		db 00h,00h,00h,00h		;  0 command 1 = key on, 2 = key off, 4 = stop snd
+psglev		db  -1, -1, -1, -1		;  4 output level attenuation (4 bit)
+psgatk		db 00h,00h,00h,00h		;  8 attack rate
+psgdec		db 00h,00h,00h,00h		; 12 decay rate
+psgslv		db 00h,00h,00h,00h		; 16 sustain level attenuation
+psgrrt		db 00h,00h,00h,00h		; 20 release rate
+psgenv		db 00h,00h,00h,00h		; 24 envelope mode 0 = off, 1 = attack, 2 = decay, 3 = sustain, 4
+psgdtl		db 00h,00h,00h,00h		; 28 tone bottom 4 bits, noise bits
+psgdth		db 00h,00h,00h,00h		; 32 tone upper 6 bits
+psgalv		db 00h,00h,00h,00h		; 36 attack level attenuation
+whdflg		db 00h,00h,00h,00h		; 40 flags to indicate hardware should be updated
+
+; dynamic chip allocation
+FMVTBL		db 080H,0,050H,0,0,0,0		; fm voice 0
+		db 081H,0,050H,0,0,0,0		; fm voice 1
+		db 084H,0,050H,0,0,0,0		; fm voice 3
+		db 085H,0,050H,0,0,0,0		; fm voice 4
+FMVTBLCH6	db 086H,0,050H,0,0,0,0		; fm voice 5 (supports digital)
+FMVTBLCH3	db 082H,0,050H,0,0,0,0		; fm voice 2 (supports CH3 poly mode)
+		db -1
+PSGVTBL		db 080H,0,050H,0,0,0,0		; normal type voice, number 0
+		db 081H,0,050H,0,0,0,0		; normal type voice, number 1
+PSGVTBLTG3	db 082H,0,050H,0,0,0,0		; normal type voice, number 2
+		db -1
+PSGVTBLNG	db 083H,0,050H,0,0,0,0		; noise type voice, number 3
+		db -1
+	
+
+; --------------------------------------------------------
+; WAVE playback
+; 
+; START: 68k direct pointer ($xxxxxx)
+; LOOP:  sampleloop point
+; END:   sample length (endpointer-startpointer)
+; --------------------------------------------------------
+
+wave_Start	dw TEST_WAV&0FFFFh
+		db TEST_WAV>>16&0FFh
+wave_End	dw (TEST_WAV_E-TEST_WAV)&0FFFFh
+		db (TEST_WAV_E-TEST_WAV)>>16
+wave_Loop	dw 0
+		db 0
+wave_Pitch	dw 100h				; 01.00h
+wav_Flags	db 101b				; WAVE playback flags (%1xx: 01 loop / 10 no loop)
+
+; ====================================================================
+; ----------------------------------------------------------------
+; GAME MUSIC/SOUND DATA GOES HERE
 ; ----------------------------------------------------------------
 
 ; ----------------------------------------------------
@@ -1251,83 +1334,3 @@ FmIns_Ambient_spook:
 		binclude "game/sound/instr/fm/ambient_spook.gsx",2478h,20h
 FmIns_Ding_toy:
 		binclude "game/sound/instr/fm/ding_toy.gsx",2478h,20h
-
-; ====================================================================
-; ----------------------------------------------------------------
-; Z80 RAM
-; ----------------------------------------------------------------
-
-; --------------------------------------------------------
-; User
-; --------------------------------------------------------
-
-		org 00B00h			; align to 0038h
-patch_Data	ds 40h*16
-wave_Start	dw TEST_WAV&0FFFFh
-		db TEST_WAV>>16&0FFh
-wave_End	dw (TEST_WAV_E-TEST_WAV)&0FFFFh
-		db (TEST_WAV_E-TEST_WAV)>>16
-wave_Loop	dw 0
-		db 0
-wave_Pitch	dw 100h				; 01.00h
-wav_Flags	db 101b				; WAVE playback flags (%1xx: 01 loop / 10 no loop)
-
-; --------------------------------------------------------
-; Internal
-; --------------------------------------------------------
-
-		org 01C00h			; align to 0038h
-dWaveFifo	ds 100h				; WAVE data buffer, updated by 128bytes
-cmdfifo		ds 64				; Buffer for command requests
-
-MBOXES		ds 32				; GEMS mailboxes
-
-
-
-tickFlag	dw 0				; Tick flag (from VBlank), Use tickFlag+1 for reading/reseting
-tickCnt		db 0				; Tick counter (KEEP IT AFTER tickFlag)
-
-sbeatPtck	dw 204				; sub beats per tick (8frac), default is 120bpm
-sbeatAcc	dw 0				; accumulates ^^ each tick to track sub beats
-currTickBits	db 0				; (old: TBASEFLAGS)		      
-dDacPntr	db 0,0,0			; WAVE current ROM position
-dDacCntr	db 0,0,0			; WAVE length counter
-dDacFifoMid	db 0				; WAVE current FIFO next halfway section
-x68ksrclsb	db 0
-x68ksrcmid	db 0
-commZRead	db 0				; read pointer (here)
-commZWrite	db 0				; cmd fifo wptr (from 68k)
-commZRomBlk	db 0				; 68k ROM block flag
-commZRomRd	db 0				; Z80 is reading ROM bit
-
-psgcom		db 00h,00h,00h,00h		;  0 command 1 = key on, 2 = key off, 4 = stop snd
-psglev		db  -1, -1, -1, -1		;  4 output level attenuation (4 bit)
-psgatk		db 00h,00h,00h,00h		;  8 attack rate
-psgdec		db 00h,00h,00h,00h		; 12 decay rate
-psgslv		db 00h,00h,00h,00h		; 16 sustain level attenuation
-psgrrt		db 00h,00h,00h,00h		; 20 release rate
-psgenv		db 00h,00h,00h,00h		; 24 envelope mode 0 = off, 1 = attack, 2 = decay, 3 = sustain, 4
-psgdtl		db 00h,00h,00h,00h		; 28 tone bottom 4 bits, noise bits
-psgdth		db 00h,00h,00h,00h		; 32 tone upper 6 bits
-psgalv		db 00h,00h,00h,00h		; 36 attack level attenuation
-whdflg		db 00h,00h,00h,00h		; 40 flags to indicate hardware should be updated
-
-; dynamic chip allocation
-FMVTBL		db 080H,0,050H,0,0,0,0		; fm voice 0
-		db 081H,0,050H,0,0,0,0		; fm voice 1
-		db 084H,0,050H,0,0,0,0		; fm voice 3
-		db 085H,0,050H,0,0,0,0		; fm voice 4
-FMVTBLCH6	db 086H,0,050H,0,0,0,0		; fm voice 5 (supports digital)
-FMVTBLCH3	db 082H,0,050H,0,0,0,0		; fm voice 2 (supports CH3 poly mode)
-		db -1
-PSGVTBL		db 080H,0,050H,0,0,0,0		; normal type voice, number 0
-		db 081H,0,050H,0,0,0,0		; normal type voice, number 1
-PSGVTBLTG3	db 082H,0,050H,0,0,0,0		; normal type voice, number 2
-		db -1
-PSGVTBLNG	db 083H,0,050H,0,0,0,0		; noise type voice, number 3
-		db -1
-	
-; START: 68k direct pointer ($xxxxxx)
-; LOOP:  sampleloop point
-; END:   endpointer-startpointer
-

@@ -104,11 +104,8 @@ Sound_DMA_End:
 		move.w	(sp)+,sr
 		rts
 
-
 ; ------------------------------------------------
 
-sndSendCmd:
-		
 sndLockZ80:
 		move.w	#$0100,(z80_bus).l		; Stop Z80
 .wait:
@@ -117,4 +114,6 @@ sndLockZ80:
 		rts
 sndUnlockZ80:
 		move.w	#0,(z80_bus).l
+		rts
+sndSendCmd:
 		rts

@@ -13,6 +13,8 @@
 ; VAR_MAXSONGS	equ	((list_TrackData_e-list_TrackData)>>4)-1
 VAR_MAXTRACK	equ	1
 
+RAM_SndTstWave	equ $FF0000
+
 ; ====================================================================
 ; ----------------------------------------------------------------
 ; RAM
@@ -54,35 +56,79 @@ RAM_CurrSelect	ds.w 1
 FmEd_Loop:
 		move.w	(vdp_ctrl),d4
 		btst	#bitVBlnk,d4
-		beq.s	FmEd_Loop
+		beq.s	.outside
 		bsr	System_Input
-.wait:		move.w	(vdp_ctrl),d4
-		btst	#bitVBlnk,d4
-		bne.s	.wait
-
+.outside:
 		move.w	(Controller_1+on_press).l,d3
 		btst	#bitJoyC,d3
 		beq.s	.noc
-		
 		nop
 		nop
 		nop
 .noc:
-
 		bra	FmEd_Loop
-		
+
 ; ====================================================================
 ; ----------------------------------------------------------------
 ; VBlank
 ; ----------------------------------------------------------------
 
 MD_VBlank:
-		rte
+		rts
 		
 ; ====================================================================
 ; ----------------------------------------------------------------
 ; Subs
 ; ----------------------------------------------------------------
+
+; .copywavefifo:
+; 		move.w	#$0100,(z80_bus).l		; Stop Z80
+; 		lea	(z80_cpu+dWaveBuff),a0
+; 		lea	(RAM_SndTstWave),a1
+; 		move.w	#($100/64)-1,d2
+; .wait:		btst	#0,(z80_bus).l			; Wait for it
+; 		bne.s	.wait
+; .copyme_2:
+; 	rept 64
+; 		move.b	(a0)+,d0
+; 		move.b	d0,(a1)+
+; 	endm
+; 
+; 		dbf	d2,.copyme_2
+; 		move.w	#0,(z80_bus).l
+; 		rts
+
+; 		lea	(RAM_SndTstWave),a0
+; 		move.l	#$40000003+((8*$80)<<16)+((2*$02)<<16),d5
+; 		move.w	
+; .nextline:
+; 		move.l	d5,(vdp_ctrl).l
+; 		move.w	#$F,d3
+; .sendbytes:
+; 		moveq	#0,d0
+; 		moveq	#0,d1
+; 		move.w	#"0",d2
+; 		move.b	(a0)+,d0
+; 		move.b	d0,d1
+; 		and.w	#$F0,d0
+; 		and.w	#$0F,d1
+; 		lsr.w	#4,d0
+; 		cmp.b	#$A,d0
+; 		blt.s	.hexl
+; 		add.w	#7,d0
+; .hexl:
+; 		cmp.b	#$A,d1
+; 		blt.s	.hexr
+; 		add.w	#7,d1
+; .hexr:
+; 		add.w	d2,d0
+; 		swap	d0
+; 		add.w	d2,d1
+; 		move.w	d1,d0
+; 		move.l	d0,(vdp_data).l
+; 		dbf	d3,.sendbytes
+		
+; 		bsr	.copywavefifo
 
 ; SndTest_Update:
 ; 		lea	(RAM_PlyrCurrIds),a2
